@@ -1,0 +1,1 @@
+このフォルダは[Space-Robotics-Laboratory/MATLAB_space_debri_capturing_sim](https://github.com/Space-Robotics-Laboratory/MATLAB_space_debri_capturing_sim)からのコピー
