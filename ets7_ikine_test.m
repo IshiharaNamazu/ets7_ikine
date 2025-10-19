@@ -3,13 +3,14 @@ global d_time
 global Gravity
 global Ez
 
+addpath(genpath("./uchidasan"))
 addpath('./SpaceDyn/src/matlab/spacedyn_v2r1'); % SpaceDyn のパスを追加
 
 %%%%%% 関節の単位回転軸ベクトル %%%%%
 Ez =[0 0 1]';
 Gravity =[0 0 0]'; % 重力（地球重力ならば Gravity = [0 0 -9.8]）
 
-d_time =0.003; % シミュレーションの１ステップあたりの時間
+d_time =0.01; % シミュレーションの１ステップあたりの時間
 
 %%%%%%%%%%%%%%% 変数初期化 %%%%%%%%%%%%%%%%%
 t_all = 10;
@@ -25,12 +26,13 @@ num_e = 1;% num_e番目の末端リンクの位置見る
 joints = j_num(LP, num_e);%アームの手先までリンクを求める
 
 %%%%% ロボットの初期関節角度を設定 %%%%%
+pre_qd = 0;
 SV.q = zeros(6,1);
 
 % fidw = fopen( 'sample.dat','w' );
 
 %%%%%%%% history %%%%%%%%
-time_array = 0:d_time:t_all+1;
+time_array = 0:d_time:t_all;
 pos_e_history = zeros(3, size(time_array, 1));
 
 %%%%%%%% 動画保存の初期化 %%%%%%%%
@@ -74,11 +76,14 @@ for time = time_array
         % 各リンク重心の位置ベクトル(6×1)を計算
         SV =calc_pos( LP, SV );
 
-        v_ee = [0 0 0.1 0 0 0]'; % 目標手先速度ベクトル
-        v_ee = r * omega * [-sin(omega * time) 0 sin(omega * time) 0 0 0]';
+        v_ee = r * omega * [-sin(omega * time) 0 cos(omega*time) 0 0 0]';
 
         %%%%%%%%%%%%%%%% qdの計算 %%%%%%%%%%%%%%%%%%%
-        SV.qd = calc_qd(LP, SV, zeros(6,1), num_e, v_ee);
+        qd = calc_qd(LP, SV, zeros(6,1), num_e, v_ee);
+        SV.qd = qd;
+        qdd = (qd - pre_qd) / d_time;
+        pre_qd = qd;
+        SV.tau = calc_tau(LP, SV, qdd);
 
         %%%%% 手先位置姿勢の計算 %%%%%
         [ POS_e, ORI_e ] =f_kin_e(LP, SV, joints);
