@@ -1,23 +1,20 @@
-function values = ets7_dyn(torque_param)
-
 %%%%%%%%%%%%%%%%% global 変数の定義 %%%%%%%%%%%%%%%%%%%%
 global d_time
 global Gravity
 global Ez
 
+addpath('./SpaceDyn/src/matlab/spacedyn_v2r1'); % SpaceDyn のパスを追加
 
 %%%%%% 関節の単位回転軸ベクトル %%%%%
 Ez =[0 0 1]';
 Gravity =[0 0 0]'; % 重力（地球重力ならば Gravity = [0 0 -9.8]）
 
-d_time =0.01; % シミュレーションの１ステップあたりの時間
+d_time =0.003; % シミュレーションの１ステップあたりの時間
 
 %%%%%%%%%%%%%%% 変数初期化 %%%%%%%%%%%%%%%%%
-values = [];
-t_all = 0;
-for i = 1:size(torque_param, 1)
-        t_all = t_all + torque_param{i, 1};
-end
+t_all = 10;
+r = 0.1;
+omega = 2 * pi / 5;
 
 %%%%%%%%%%%% リンクパラメータ定義と変数の初期化 %%%%%%%%%%%%%%%%%
 LP = ets7_linkparam();%LP１とかにしてもよいi.         Sample_LP()を呼び出してLPに格納
@@ -33,20 +30,38 @@ SV.q = zeros(6,1);
 % fidw = fopen( 'sample.dat','w' );
 
 %%%%%%%% history %%%%%%%%
-time_array = 0:d_time:t_all;
+time_array = 0:d_time:t_all+1;
 pos_e_history = zeros(3, size(time_array, 1));
+
+%%%%%%%% 動画保存の初期化 %%%%%%%%
+video_speed_factor = 1;
+video_filename = 'ets7_simulation.avi';
+video = VideoWriter(video_filename,'Motion JPEG AVI');
+video.FrameRate = round(video_speed_factor/d_time); % フレームレートをシミュレーションステップに合わせる
+open(video);
+
+%%%%%%%% 描画関連 %%%%%%%%
+figure(6);
+clf; % figureをクリア
+FIG3D = ets7_fig3d();
+axis equal;
+xlabel('X'); ylabel('Y'); zlabel('Z');
+view(3); grid on;
+xlim([-3 3]);
+ylim([-3 3]);
+zlim([-3 3]);
+title('Figure');
+hold on; % holdをonにして複数のオブジェクトを保持
 
 %%%%%%%%%%%%%%%%% ここからシミュレーションループスタート %%%%%%%%%%%%%%%%%%%%%%%%%%
 tic; % 計測開始
 itr = 0;
 for time = time_array
         itr = itr + 1;
-        % if mod(itr, 100) == 0
-        %         fprintf('\rprogress: %f/%f', time, t_all);
-        % end
+        if mod(itr, 100) == 0
+                fprintf('\rprogress: %f/%f', time, t_all);
+        end
 
-        %%%%%%%%%%%%%%%% 目標トルク制御の計算 %%%%%%%%%%%%%%%%%%%
-        SV.tau = calc_torque(torque_param, time);
 
         %%%%%%%%%%%%%%%%%%%% 順動力学の計算 %%%%%%%%%%%%%%%%%%%%%
         SV = f_dyn_rk2( LP, SV );
@@ -59,23 +74,34 @@ for time = time_array
         % 各リンク重心の位置ベクトル(6×1)を計算
         SV =calc_pos( LP, SV );
 
+        v_ee = [0 0 0.1 0 0 0]'; % 目標手先速度ベクトル
+        v_ee = r * omega * [-sin(omega * time) 0 sin(omega * time) 0 0 0]';
+
+        %%%%%%%%%%%%%%%% qdの計算 %%%%%%%%%%%%%%%%%%%
+        SV.qd = calc_qd(LP, SV, zeros(6,1), num_e, v_ee);
+
         %%%%% 手先位置姿勢の計算 %%%%%
         [ POS_e, ORI_e ] =f_kin_e(LP, SV, joints);
 
         pos_e_history(:, round(time/d_time) + 1) = POS_e;
+        %%%%%%%%%%%%%%%%%%%%%%% 描画 %%%%%%%%%%%%%%%%%%%%%%%%%
+        set(FIG3D.base.base, 'Vertices', (SV.A0 * FIG3D.base.vertices_local')' + SV.R0');
+        for i = 1:6
+                set(FIG3D.link(i).link, 'Vertices', (SV.AA(:,i*3-2:i*3) * FIG3D.link(i).vertices_local')' + SV.RR(:,i)');
+        end
+        drawnow;
+
+        % 動画フレームの保存
+        frame = getframe(gcf);
+        writeVideo(video, frame);
 end
 elapsedTime = toc;
 disp(['処理時間: ', num2str(elapsedTime), '/', num2str(t_all), ' 秒']);
 
+% 動画ファイルを閉じる
+close(video);
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%% シミュレーションループここまで %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%% 評価関数の計算 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-% 目標位置と手先位置の誤差を計算
-desired_pos_e = [0.5; -0.9; 2]; % 目標手先位置
-pos_e_error = pos_e_history - desired_pos_e;
-
-% 評価関数の値を計算
-values = [norm(pos_e_error(:, end)), norm(SV.qd)];
 
 %%% EOF
